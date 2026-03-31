@@ -2,9 +2,11 @@ import streamlit as st
 import google.generativeai as genai
 import json
 import os
+import requests
+from bs4 import BeautifulSoup
 
 # --- 設定保存 ---
-CONFIG_FILE = "baru_config.json"
+CONFIG_FILE = "baru_pro_config.json"
 def save_cfg(k, b):
     with open(CONFIG_FILE, "w") as f: json.dump({"k": k, "b": b}, f)
 def load_cfg():
@@ -15,57 +17,78 @@ def load_cfg():
     return {"k": "", "b": ""}
 
 cfg = load_cfg()
-st.set_page_config(page_title="Baru AI v5.0", layout="wide")
-st.title("🏇 Baru 競馬AI - 【下剋上・期待値ダブル軸版】")
+st.set_page_config(page_title="Baru 競馬AI Pro", layout="wide")
+st.title("🏇 Baru 競馬AI Pro - 【URL解析・馬名厳守版】")
 
-def reset_data():
-    st.session_state["data_input"] = ""
+# --- スクレイピング関数 (文字化け対策済み) ---
+def get_netkeiba_data(url):
+    try:
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+        res = requests.get(url, headers=headers)
+        res.encoding = res.apparent_encoding # 文字コード自動判別
+        soup = BeautifulSoup(res.text, "html.parser")
+        
+        # 不要なタグを削除して軽量化
+        for s in soup(['script', 'style']): s.decompose()
+        
+        # 出馬表メイン部分を狙い撃ち
+        main_data = soup.find("table", class_="db_table") or soup.find("div", class_="RaceTableArea") or soup
+        text = main_data.get_text(separator="\n", strip=True)
+        return text[:7000] # トークン節約のためカット
+    except Exception as e:
+        return f"取得エラー: {e}"
 
 with st.sidebar:
     st.header("⚙️ 設定")
     api_key = st.text_input("Gemini API KEY", value=cfg.get("k", ""), type="password")
-    bias = st.text_area("🧠 総監督バイアス", value=cfg.get("b", ""), height=150)
+    bias = st.text_area("🧠 総監督バイアス", value=cfg.get("b", "地方の深い砂、小回り、内枠先行を最優先。"), height=150)
+    budget = st.number_input("1レースの予算(円)", value=1000, step=100)
     if st.button("💾 保存"):
         save_cfg(api_key, bias)
-        st.success("下剋上ロジック、リミッター解除。")
+        st.success("設定を保存しました。")
 
-col1, col2 = st.columns([2, 1])
+col1, col2 = st.columns([1, 1])
+
 with col1:
-    data = st.text_area("📋 レースデータ", height=550, key="data_input")
-with col2:
-    if st.button("🔥 下剋上・究極ジャッジ"):
-        if not api_key or not data:
-            st.error("入力不足です")
+    url_input = st.text_input("🔗 netkeibaのレースURLを貼り付け")
+    if st.button("🚀 URLから解析開始"):
+        if not api_key or not url_input:
+            st.error("キーとURLが必要です")
         else:
-            try:
-                genai.configure(api_key=api_key)
-                model = genai.GenerativeModel("gemini-1.5-flash")
+            with st.spinner("砂のデータを抽出中..."):
+                target_data = get_netkeiba_data(url_input)
                 
-                prompt = f"""
-                競馬AI総監督Baruとして、AIの「人気忖度」を捨て、以下の【下剋上ロジック】で結論を出せ。
-                【データ】: {data}
-                【バイアス】: {bias}
-                
-                1.★ダブル本命(W-AXIS): 
-                   - 【◎実績軸】: 安定した実績馬
-                   - 【★下剋上軸】: 勢い・期待値・爆穴の筆頭
-                   この2頭を対等に扱い、どちらかが飛んでも成立する買い目を作れ。
-                2.人気馬の死角探し: 1番人気が負ける理由を1つ見つけ、積極的に「▲」以下へ落とす勇気を持て。
-                3.掲示板ハンター網羅: 地味だが堅実な馬を必ず△で拾い、3連複の網から漏らすな。
-                4.全頭診断: 1行。馬番、馬名、そして「その馬が1着でゴールする時の展開」を具体的に書け。
-                5.買い目: 
-                   - ◎と★の2頭軸マルチ(馬連・ワイド)
-                   - 3連複は「◎,★のいずれか1頭目」→「上位5頭」→「全流し」の強気フォーメーション。
-                """
-                
-                with st.spinner("人気を疑い、期待値を最大化中..."):
-                    res = model.generate_content(prompt)
-                    st.success("✅ 解析完了。人気に日和らず、真の勝ち馬を指名しました。")
-                    st.markdown("---")
-                    st.markdown(res.text)
-            except Exception as e:
-                st.error(f"エラー: {e}")
+                try:
+                    genai.configure(api_key=api_key)
+                    # 利用可能なモデルを自動取得
+                    ms = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+                    model_name = next((x for x in ms if "flash" in x), ms[0])
+                    
+                    model = genai.GenerativeModel(model_name)
+                    prompt = f"""
+                    あなたは競馬AI総監督Baruの右腕だ。
+                    【絶対ルール】馬名は提供されたデータにあるもののみを使用せよ。勝手に名馬の名前に置き換えるな。
+                    
+                    以下の構成で出力せよ：
+                    1. 砂の王 (POWER-AXIS): 砂適性NO.1の馬
+                    2. 先行優位ジャッジ: 展開の鍵を握る馬
+                    3. 下剋上・勝負気配: 期待値の高い穴馬
+                    4. 全頭短評: 全馬の「買い/消し」理由
+                    5. 最終結論: ◎○▲△×の印
+                    6. 資金配分: 予算{budget}円を三連単・馬単に最適配分せよ。
+                    
+                    データ: {target_data}
+                    バイアス: {bias}
+                    """
+                    
+                    response = model.generate_content(prompt)
+                    st.session_state["res"] = response.text
+                except Exception as e:
+                    st.error(f"解析エラー: {e}")
 
-    st.button("🧹 データをクリア", on_click=reset_data)
+with col2:
+    st.subheader("📊 投資指示書")
+    if "res" in st.session_state:
+        st.markdown(st.session_state["res"])
 
-st.caption("Baru Stable AI System v5.0 - 人気忖度撤廃・期待値下剋上ロジック")
+st.caption("Baru Stable AI Pro v10.0")
