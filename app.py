@@ -14,11 +14,11 @@ def load_cfg():
         try:
             with open(CONFIG_FILE, "r") as f: return json.load(f)
         except: pass
-    return {"k": "", "b": ""}
+    return {"k": "", "b": "芝の決め手、血統適性、上がり3F、トラックバイアスを統合解析せよ。近走不振でも急坂コースの上がり最速馬は特注。"}
 
 cfg = load_cfg()
 st.set_page_config(page_title="Baru 競馬AI Pro 18", layout="wide")
-st.title("🏇 Baru 競馬AI Pro - 【中央18頭フルゲート・1軸4頭流し対応】")
+st.title("🏇 Baru 競馬AI Pro - 【有料枠・勝率予測モデル】")
 
 # --- スクレイピング関数 ---
 def get_netkeiba_data(url):
@@ -46,8 +46,7 @@ def clear_all():
 with st.sidebar:
     st.header("⚙️ 総監督ルーム")
     api_key = st.text_input("Gemini API KEY", value=cfg.get("k", ""), type="password")
-    # ↓ここを一行に修正しました
-    bias_val = cfg.get("b", "芝の決め手、血統適性、上がり3F、トラックバイアスを統合解析せよ。近走不振でも急坂コースの上がり最速馬は特注。")
+    bias_val = cfg.get("b")
     bias = st.text_area("🧠 総監督バイアス", value=bias_val, height=200)
     budget = st.number_input("1レースの予算(円)", value=1000, step=100)
     
@@ -61,15 +60,15 @@ with st.sidebar:
 col1, col2 = st.columns([1, 1])
 
 with col1:
-    st.subheader("📋 18頭データ入力")
+    st.subheader("📋 データ入力")
     url_input = st.text_input("🔗 netkeiba PC版URL", key="url_field")
     st.write("--- または ---")
-    manual_data = st.text_area("✍️ 18頭分の馬柱をコピペ", height=500, key="manual_field")
+    manual_data = st.text_area("✍️ 馬柱データを貼り付け", height=500, key="manual_field")
     
-    if st.button("🚀 フルスキャン解析開始"):
+    if st.button("🚀 フルスキャン・勝率予測開始"):
         target_data = url_input if url_input else manual_data
         if url_input:
-            with st.spinner("PC版サイトから全18頭を抽出中..."):
+            with st.spinner("有料枠エンジンで高速抽出中..."):
                 target_data = get_netkeiba_data(url_input)
 
         if not api_key or not target_data:
@@ -77,22 +76,40 @@ with col1:
         else:
             try:
                 genai.configure(api_key=api_key)
-                model = genai.GenerativeModel("gemini-1.5-flash") # 安定版の名称に変更
+                # 有料枠で最も安定し、かつ高精度な 1.5-pro を指定
+                # ※404エラーを避けるため、最も標準的な名称に変更しました
+                model = genai.GenerativeModel("gemini-1.5-pro")
+                
                 prompt = f"""
-                あなたは競馬AI総監督Baruの右腕だ。中央競馬18頭フルゲートに対応せよ。
-                【ルール】18番まで番号順に点呼せよ。下剋上候補は「急坂コースの上がり実績馬」を選べ。
-                【構成】1.適性 2.展開 3.下剋上 4.全頭短評(1-18) 5.結論 6.🚀1軸4頭流し馬券(予算{budget}円)
+                あなたは競馬AI総監督Baruの右腕だ。
+                中央競馬18頭フルゲートまで全頭を精密に解析し、以下の構成で出力せよ。
+                
+                【最重要：勝率予測】
+                全頭短評の冒頭に、独自解析した「単勝勝率％」と「複勝圏内率％」を必ず記載せよ。
+                例：「1. 馬名 [単勝15%/複勝45%] - 短評...」
+                
+                構成：
+                1. 砂の王/芝の覇者 (血統・適性)
+                2. 先行優位ジャッジ (展開予測)
+                3. 下剋上・勝負気配 (上がり実績馬)
+                4. 全頭解析＆勝率予測 [単%/複%] (1〜18番まで点呼)
+                5. 最終結論 (◎○▲△×)
+                6. 🚀 総監督・勝負馬券 (予算{budget}円)
+                   - 【メイン】3連複 1軸4頭流し (◎軸、相手○▲△×) 100円×6点
+                   - 【厚め】勝率予測とオッズを比較し、期待値の高い買い目(馬連・ワイド等)を指示せよ。
+                
                 データ: {target_data}
                 バイアス: {bias}
                 """
-                with st.spinner("18頭の全貌を統合解析中..."):
+                with st.spinner("有料枠・高精度エンジンで解析中..."):
                     response = model.generate_content(prompt)
                     st.session_state["res"] = response.text
             except Exception as e:
-                st.error(f"解析エラー: {e}")
+                # 404が出た場合の予備策として、より汎用的なモデル名を試行するヒントを表示
+                st.error(f"解析エラー: {e}\n\n※AI StudioでAPIキーが有効化されるまで数分かかる場合があります。")
 
 with col2:
-    st.subheader("📊 18頭・投資指示書")
+    st.subheader("📊 解析結果・投資指示書")
     if st.session_state["res"]:
         st.markdown(st.session_state["res"])
-st.caption("Baru Stable AI Pro v12.2")
+st.caption("Baru Stable AI Pro v12.5 - Paid Tier Optimized")
