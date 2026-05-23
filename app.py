@@ -1,87 +1,138 @@
-import re
-import pandas as pd
 import streamlit as st
+import google.generativeai as genai
+import json
+import os
+import requests
+from bs4 import BeautifulSoup
 
-# --- Streamlitの画面設定 ---
-st.set_page_config(page_title="競馬ブック能力表パサー", layout="wide")
-st.title("🏇 競馬ブック 能力表データ整形ツール")
-st.write("テキストデータから正しい馬番と馬名を抽出します。")
+# --- 設定保存機能 ---
+CONFIG_FILE = "baru_pro_config.json"
+def save_cfg(k, b):
+    with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+        json.dump({"k": k, "b": b}, f, ensure_ascii=False, indent=4)
 
-# --- 1. サンプルデータの用意（OCRやテキスト抽出された生のデータ） ---
-# ※ここにパースしたいテキストを流し込めるようにしています
-raw_data_input = st.text_area(
-    "ここに能力表のテキストを貼り付けてください（現在はサンプルが入っています）",
-    value="""1 1 56.9 ○ 小林凌 ロードカナロア (特)スペルキャスター スペルバインド 5走前 9着①11-12 2歳クラス 16頭 8 1着②1-2 2歳クラス 13頭 11 1着②5-3 通過2戦 16頭 5 1200芝内1:08.9 鮫島駿54 R 1200芝内1:09.4 藤岡康53 R 1000芝直0:55.0 小林凌大53 R H34.8-34.1 B468 前572 H34.0-35.4 B467 前578 M22.0-33.0 B478 ブルーアイド 0.7 478 11枠10人 キシードレ 1.1 486 9枠12人 カウンターセ 0.5 478 15枠4人
-1 2 60.9 ◎ 西塚洸 ヴィクトワールピサ バルティクラール サンデスタッシュ 3走前 11着①11-24 2歳 16頭 4 2着②12-9 2歳クラス 16頭 4 1着②1-21 同地方 10頭 1800芝右1:47.5 西塚洸56 R 1600芝人1:35.1 プーシャ56 R 1400芝人1:20.2 0.0分春56 R S36.7-34.8 B498 前572 M35.9-36.1 B502 前576 M34.3-34.5 B502 ノーランサン 0.0 528 3枠3人 メダルスピー 0.6 524 6枠6人 ミトノオー 0.2 526 6枠7人
-2 3 56.8 △ 上原豪 7/4（水）くるめ（岩手） 牡6 栗 鈴木啓（美） ライクアフラワー ビクトリーチャーム 4着①3-13 3歳2組 11頭 6 5着①12-6 2歳クラス 13頭 7 1着①4-5 サンク3歳 14頭 8 1200芝x1:08.6 石神深58 R 1200芝内1:07.8 石神深56 R 1200芝内1:08.8 石神深57 R S36.0-32.6 B508 前576 M34.3-33.5 B510 前579 H35.0-33.8 B514 前577 ギンシャリマ 0.3 508 8枠9人 サンドアイラ 0.3 510 4枠8人 ウインアイオ 0.1 514 5枠5人
-2 4 61.1 ○ 丹内祐 ダイワメジャー ヴァンヴィーヴ サンデスタッシュ 1着①11-17 2歳クラス 16頭 1 1着①1-11 2歳クラス 16頭 4 1着②4-25 民友2戦 16頭 2 1200芝外1:08.1 戸崎圭58 R 1200芝人1:08.1 丹内祐58 R 1200芝新1:07.7 舟山駆58 R S34.8-33.3 B512 前582 M34.2-33.9 B516 前576 M34.0-33.7 B514 キンシャノ 0.1 512 9枠1人 アサクサグレ 0.4 512 4枠1人 ウィンストン 0.0 514 7枠2人""",
-    height=200
-)
-
-# --- 2. 解析ロジック用の関数 ---
-def parse_keibabook_line(line):
-    line = line.strip()
-    if not line:
-        return None
-        
-    # 行頭の「枠番」「馬番」「騎手」を正確に抽出
-    base_match = re.search(r'^(\d+)\s+(\d+)\s+[\d\.]+\s*[\u25ce\u25cb\u25b2\u25b3\u2605]*\s*([^\s]+)', line)
-    if not base_match:
-        return None
-        
-    waku = base_match.group(1)
-    umaban = base_match.group(2)
-    jockey = base_match.group(3)
-    
-    # 特有の馬名リストとパターンから馬名を特定
-    horse_match = re.search(r'([ァ-ヴー・\s㎡\(\)（）]+(キャスター|クラール|フラワー|ヴィーヴ|イグニション|クイーン|トニトゥルス|ミリオレ|チーフ|フォティック|ラトルシェ|シチー|ローリー|カズラ|エフォート|セニョール|[ァ-ヴー]{4,}))', line)
-    
-    horse_name = "不明"
-    if horse_match:
-        horse_name = horse_match.group(1).replace("(特)", "").strip().split()[-1]
-
-    # 1走前の対戦馬（数字の塊と合体するバグを回避）
-    vs_horse = "データなし"
-    vs_match = re.search(r'([ァ-ヴー・\s]+)\s+([\d\.\-]+)\s+(\d{3})\s+\d+枠\d+人', line)
-    if vs_match:
-        vs_horse = vs_match.group(1).strip().split()[-1]
-    else:
-        vs_match_fallback = re.findall(r'([ァ-ヴー]{2,})\s+[\d\.\-]+\s+\d{3}', line)
-        if vs_match_fallback:
-            vs_horse = vs_match_fallback[0]
-
+def load_cfg():
+    if os.path.exists(CONFIG_FILE):
+        try:
+            with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except:
+            pass
     return {
-        "枠番": int(waku),
-        "馬番": int(umaban),
-        "馬名": horse_name,
-        "騎手": jockey,
-        "1走前の対戦馬": vs_horse
+        "k": "", 
+        "b": "JRA（中央競馬）の高速馬場・トラックバイアス、芝・ダートのキレ、血統適性（スピード・持続力）、上がり3Fを統合解析せよ。"
     }
 
-# --- 3. 実行および画面表示 ---
-if st.button("データを解析する"):
-    rows = []
-    for line in raw_data_input.strip().split('\n'):
-        result = parse_keibabook_line(line)
-        if result:
-            rows.append(result)
+cfg = load_cfg()
+st.set_page_config(page_title="Baru JRA AI Pro", layout="wide")
+st.title("🏇 Baru 競馬AI Pro - 【JRA中央・血統適性＆15点極限絞り込み版】")
 
-    if rows:
-        # データフレームを作成
-        df = pd.DataFrame(rows)
-        
-        st.success("データの抽出に成功しました！")
-        
-        # Streamlit標準のインタラクティブなテーブルで表示（タブリエイト不要）
-        st.dataframe(df, use_container_width=True)
-        
-        # CSVダウンロードボタンもついでに配置
-        csv = df.to_csv(index=False).encode('utf-8')
-        st.download_button(
-            label="CSVファイルとしてダウンロード",
-            data=csv,
-            file_name="keiba_parsed_data.csv",
-            mime="text/csv",
-        )
-    else:
-        st.error("有効なデータが検出できませんでした。テキストの形式を確認してください。")
+def get_netkeiba_data(url):
+    try:
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+        res = requests.get(url, headers=headers)
+        res.encoding = res.apparent_encoding
+        soup = BeautifulSoup(res.text, "html.parser")
+        main_data = soup.find_all("table")
+        combined_text = ""
+        for table in main_data:
+            combined_text += table.get_text(separator="\n", strip=True) + "\n"
+        return combined_text[:40000] # 中央競馬の膨大なデータ量に対応して上限を拡張
+    except Exception as e:
+        return f"Error: {e}"
+
+with st.sidebar:
+    st.header("⚙️ 総監督ルーム（JRA特化）")
+    api_key = st.text_input("Gemini API KEY", value=cfg.get("k", ""), type="password")
+    bias = st.text_area("🧠 総監督バイアス（JRA馬場・展開）", value=cfg.get("b"), height=150)
+    budget = st.number_input("予算(円)", value=1500, step=100)
+    if st.button("💾 設定保存"):
+        save_cfg(api_key, bias)
+        st.success("JRA特化設定を保存しました。")
+
+if "res" not in st.session_state:
+    st.session_state["res"] = ""
+
+col1, col2 = st.columns([1, 1])
+
+with col1:
+    st.subheader("📋 JRAデータ・調教・コピペ入力")
+    url_input = st.text_input("🔗 netkeiba等のJRAレースURL（出馬表・調教・厩舎）")
+    manual_data = st.text_area("✍️ スマホ画面からのコピペデータ（不整形・ズレデータもそのまま可）", height=450)
+    
+    if st.button("🚀 JRA精密血統スキャン・15点投資解析開始"):
+        target_data = ""
+        if url_input:
+            with st.spinner("JRAレースデータをスクレイピング中..."):
+                target_data = get_netkeiba_data(url_input)
+        else:
+            target_data = manual_data
+
+        if not api_key or not target_data:
+            st.error("APIキーとレースデータ（またはURL）が必要です")
+        else:
+            try:
+                genai.configure(api_key=api_key)
+                models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+                
+                # 最もパース能力の高い高性能モデルを自動選択
+                m_name = next((x for x in models if "1.5-pro" in x), 
+                             next((x for x in models if "pro" in x), 
+                             models[0]))
+                
+                model = genai.GenerativeModel(m_name)
+                
+                # --- LLM側にパースとフォーマットを完全強制するプロンプト ---
+                prompt = f"""
+                あなたは中央競馬（JRA）解析のプロフェッショナルであり、競馬AI総監督Baruの右腕だ。
+                入力されたJRAのデータ（不整形、数字の混入、行ズレ含む）から、正確に馬名・血統・人気を識別し、軸馬選定ミスを撲滅せよ。
+
+                【解析における絶対掟】
+                1. 入力データに「15129」や「547815」のようなスピード指数・馬体重等の大きな数字が混ざっていても、それを馬番と誤認するな。本来の「正しい馬番（1〜18）」をデータから超精密にパースせよ。
+                2. 「ロードカナロア」「モーリス」「エピファネイア」「ハービンジャー」等の有名な種牡馬名が「馬名」の欄に入り込むバグを徹底的に排除せよ。これらは「父」である。真の馬名をデータから執念深く抜き出せ。
+                3. 出走取消の馬（例: オタルグリーン等）がある場合は、評価を「消」とし、理由に【出走取消】と明記せよ。
+
+                【出力フォーマット】
+                以下の構成のみを出力し、余計な前置きは一切書くな。
+
+                ### 📊 全頭精密診断・血統適性リスト
+                必ず以下の列を持つMarkdownテーブル形式で全頭出力せよ。
+                | 馬番 | 馬名 | 父 | 母 | 血統適性 | 人気 | 評価 | 理由 |
+                ※血統適性は、父や母の系統から「【A】高速・瞬発型」「【B】持続・スタミナ型」「【C】洋芝・パワー型」「ダート型」等で分類せよ。
+                ※評価は（◎、○、▲、△、注、消）で厳選。
+
+                ### 💰 三連複フォーメーション：厳選15点指示書
+                ガミりを防ぎ投資効率を最大化するため、以下のロジックで【合計15点】になるフォーメーション案を必ず生成せよ。
+                - 1頭目（軸馬）：◎（1頭）
+                - 2頭目（対抗）：○や▲から「厳選した2頭」のみを指定
+                - 3頭目（紐・穴）：◎、○、▲、△、注を含めた「合計7頭」を指定（15番等の穴馬や爆弾馬は必ずここに滑り込ませろ）
+                ※計算式：1頭×2頭×(7頭 - 2頭) ＝ 【15点】に完全固定。
+
+                フォーマット例：
+                **◎ 軸馬: 〇番 (馬名)**
+                - **1頭目：** [軸馬の番号]
+                - **2頭目：** [2頭の番号]
+                - **3頭目：** [7頭の番号]
+                ```text
+                1頭目：〇
+                2頭目：〇, 〇
+                3頭目：〇, 〇, 〇, 〇, 〇, 〇, 〇
+                ```
+
+                JRAデータ: {target_data}
+                総監督バイアス: {bias}
+                予算: {budget}円
+                """
+                
+                with st.spinner(f"🚀 JRA特化エンジン {m_name} が血統・データをパース中..."):
+                    response = model.generate_content(prompt)
+                    st.session_state["res"] = response.text
+            except Exception as e:
+                st.error(f"解析エラー: {e}")
+
+with col2:
+    st.subheader("📊 投資指示書")
+    if st.session_state["res"]:
+        st.markdown(st.session_state["res"])
+
+st.caption("Baru Stable JRA AI Pro v22.0 - Genealogy & 15-Point Precision Edition")
