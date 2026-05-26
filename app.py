@@ -4,14 +4,12 @@ import os
 import json
 import datetime
 
-# --- 初期設定 ---
+# --- 設定・ディレクトリ ---
 LOG_DIR = "racing_logs_standard"
 CONFIG_FILE = "baru_pro_config.json"
 os.makedirs(LOG_DIR, exist_ok=True)
 
-st.set_page_config(page_title="Baru AI Pro", layout="wide", initial_sidebar_state="expanded")
-
-# --- 設定保存・読込 ---
+# 設定保存・読込
 def save_cfg(k, b):
     with open(CONFIG_FILE, "w", encoding="utf-8") as f:
         json.dump({"k": k, "b": b}, f, ensure_ascii=False, indent=4)
@@ -22,11 +20,12 @@ def load_cfg():
             with open(CONFIG_FILE, "r", encoding="utf-8") as f:
                 return json.load(f)
         except: pass
-    return {"k": "", "b": "JRA・地方競馬の高速馬場・トラックバイアス、走破タイム、展開・ハナ争いを統合解析せよ。"}
+    return {"k": "", "b": "トラックバイアス、高速馬場適性、上がり3F、展開・ハナ争いを統合解析せよ。"}
 
 cfg = load_cfg()
+st.set_page_config(page_title="Baru AI Pro", layout="wide", initial_sidebar_state="expanded")
 
-# --- サイドバー構成（絶対に消えない独立ブロック） ---
+# --- サイドバー：全機能搭載 ---
 with st.sidebar:
     st.header("⚙️ 総監督ルーム")
     api_key = st.text_input("Gemini API KEY", value=cfg.get("k", ""), type="password")
@@ -53,38 +52,46 @@ with st.sidebar:
             st.warning("猛省レポート生成中...")
             st.rerun()
 
-# --- メインエリア ---
-st.title("🏇 Baru 競馬AI Pro - 接続突破版")
-manual_data = st.text_area("netkeibaデータをコピペ", height=300)
+# --- メインエリア：全頭精密診断 ---
+st.title("🏇 Baru 競馬AI Pro - 最終完全版")
+manual_data = st.text_area("✍️ 馬柱・オッズデータを貼り付け", height=300)
 
-if st.button("🚀 3連複15点フォーメーション解析開始"):
+if st.button("🚀 構造解剖・全頭精密診断と3連複15点出力"):
     if not api_key:
         st.error("APIキーを入力してください")
     else:
         try:
-            with st.spinner("接続先を探索中..."):
+            with st.spinner("接続先を探索し、精密解析中..."):
                 genai.configure(api_key=api_key)
-                # モデル名をハードコードせず、APIから利用可能なモデルを取得
+                # 利用可能なモデルを自動取得して接続エラーを回避
                 models = [m for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-                if not models:
-                    raise Exception("利用可能なAIモデルが見つかりません")
-                
                 model = genai.GenerativeModel(models[0].name)
                 
                 prompt = f"""
-                【3連複15点フォーメーション解析】
+                【全頭精密診断】
                 データ: {manual_data}
                 バイアス: {bias}
-                指示: 以下の形式で15点を出力せよ。
-                1列目: ◎ (1頭)
-                2列目: ○, ▲ (2頭)
-                3列目: ◎, ○, ▲, △, 注 (5頭)
+                
+                指示:
+                1. 各馬を精密に診断しMarkdownテーブルで出力せよ。
+                   カラム: | 馬番 | 馬名 | 父 | 母 | ダート適性 | 脚質 | 人気 | 評価 | 理由 |
+                2. 【3連複15点フォーメーション】を以下の形式で出力せよ。
+                   ・1列目(軸): ◎ 1頭
+                   ・2列目(相手): ○, ▲ 2頭
+                   ・3列目(紐): ◎, ○, ▲, △, 注 計5頭
                 """
                 response = model.generate_content(prompt)
                 st.session_state["res"] = response.text
+                
+                # 自動ログ保存
+                now = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+                with open(os.path.join(LOG_DIR, f"Race_{now}.txt"), "w", encoding="utf-8") as f:
+                    f.write(response.text)
                 st.rerun()
         except Exception as e:
             st.error(f"接続エラー: {e}")
+            st.info("💡 ヒント: APIキーとGoogle AI Studioのプロジェクト設定を確認してください。")
 
+# 結果表示エリア
 if "res" in st.session_state:
     st.markdown(st.session_state["res"])
