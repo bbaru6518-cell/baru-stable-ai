@@ -40,7 +40,7 @@ def get_netkeiba_data(url):
 
 cfg = load_cfg()
 st.set_page_config(page_title="Baru AI WIN5 Master v25", layout="wide")
-st.title("🏇 Baru 競馬AI Pro - 【Ver 25.0 WIN5戦略特化型マスター】")
+st.title("🏇WIN5戦略特化型マスター】")
 
 with st.sidebar:
     st.header("⚙️ 総監督ルーム（WIN5戦略司令部）")
