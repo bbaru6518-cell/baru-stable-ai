@@ -3,68 +3,73 @@ import google.generativeai as genai
 import os
 import datetime
 
-# --- 初期設定 ---
+# --- 設定 ---
 LOG_DIR = "racing_logs_standard"
 os.makedirs(LOG_DIR, exist_ok=True)
-st.set_page_config(page_title="Baru AI Pro", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="Baru AI Pro", layout="wide")
 
-# --- サイドバー：全機能搭載 ---
+# --- サイドバー：猛省ログの蓄積機能 ---
 with st.sidebar:
     st.header("⚙️ 総監督ルーム")
     api_key = st.text_input("Gemini API KEY", type="password")
     
     st.markdown("---")
-    st.header("📂 過去ログ・結果復習ルーム")
+    st.header("📂 過去ログ・猛省アーカイブ")
     log_files = sorted([f for f in os.listdir(LOG_DIR) if f.endswith(".txt")], reverse=True)
+    
     if log_files:
         selected_log = st.selectbox("確認する過去ログ", log_files)
-        if st.button("📖 予想を呼び出す"):
+        if st.button("📖 予想と猛省を呼び出す"):
             with open(os.path.join(LOG_DIR, selected_log), "r", encoding="utf-8") as f:
                 st.session_state["res"] = f.read()
             st.rerun()
 
     st.markdown("---")
-    st.header("🏁 結果コピペ・猛省")
-    result_copypaste = st.text_area("レース結果をコピペ", height=150)
-    
-    # 照合処理：session_stateを確実に見る
-    if st.button("🚨 照合して猛省レポート"):
-        if "res" not in st.session_state or not st.session_state["res"]:
-            st.error("先に過去の予想を「呼び出し」てください。")
-        elif not result_copypaste:
-            st.error("レース結果を入力してください。")
-        elif not api_key:
-            st.error("APIキーを入力してください。")
-        else:
-            with st.spinner("照合・猛省中..."):
-                try:
-                    genai.configure(api_key=api_key)
-                    models = [m for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-                    model = genai.GenerativeModel(models[0].name)
-                    
-                    prompt = f"予想:\n{st.session_state['res']}\n\n結果:\n{result_copypaste}\n\n展開やハナ争いのズレを猛省せよ。"
-                    response = model.generate_content(prompt)
-                    
-                    st.session_state["res"] += f"\n\n--- 🏁 猛省レポート ---\n{response.text}"
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"エラー: {e}")
+    st.header("🏁 結果コピペ・猛省生成")
+    result_copypaste = st.text_area("結果を入力して猛省", height=150)
+    if st.button("🚨 猛省レポート作成"):
+        if "res" in st.session_state and result_copypaste:
+            try:
+                genai.configure(api_key=api_key)
+                model = genai.GenerativeModel("gemini-1.5-flash")
+                prompt = f"予想:\n{st.session_state['res']}\n\n結果:\n{result_copypaste}\n\n指示: 上記を分析し、猛省レポートを作成せよ。これを次回の予想精度向上のための教訓とせよ。"
+                response = model.generate_content(prompt)
+                
+                # ログを上書き更新
+                new_log = f"{st.session_state['res']}\n\n--- 🏁 【猛省レポート】 ---\n{response.text}"
+                st.session_state["res"] = new_log
+                
+                # 最新ログとして保存
+                with open(os.path.join(LOG_DIR, selected_log), "w", encoding="utf-8") as f:
+                    f.write(new_log)
+                st.rerun()
+            except Exception as e:
+                st.error(f"エラー: {e}")
 
-# --- メインエリア ---
-st.title("🏇 Baru 競馬AI Pro")
-manual_data = st.text_area("✍️ 馬柱・データ入力", height=300)
+# --- メインエリア：学習を反映させた解析 ---
+st.title("🏇 Baru 競馬AI Pro - 猛省反映型")
+manual_data = st.text_area("✍️ 次回の馬柱データ", height=300)
 
-if st.button("🚀 構造解剖・全頭診断開始"):
+if st.button("🚀 猛省を活かした次回の構造解剖"):
     if not api_key:
         st.error("APIキーを入力してください")
     else:
         try:
-            with st.spinner("解析中..."):
+            with st.spinner("過去の猛省を振り返り、精度向上中..."):
                 genai.configure(api_key=api_key)
-                models = [m for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-                model = genai.GenerativeModel(models[0].name)
+                # 過去の猛省履歴をプロンプトに含める
+                history = st.session_state.get("res", "過去のデータなし")
+                model = genai.GenerativeModel("gemini-1.5-flash")
                 
-                prompt = f"データ: {manual_data}\n全頭診断と3連複15点指示書を作れ。"
+                prompt = f"""
+                【過去の猛省履歴】
+                {history}
+                
+                【今回のデータ】
+                {manual_data}
+                
+                指示: 過去の敗因（展開読みのズレ、穴馬の取りこぼし）を深く反省し、今回のレースで同じ失敗をしないよう、より精密に診断せよ。
+                """
                 response = model.generate_content(prompt)
                 st.session_state["res"] = response.text
                 
