@@ -8,7 +8,7 @@ LOG_DIR = "racing_logs_standard"
 os.makedirs(LOG_DIR, exist_ok=True)
 st.set_page_config(page_title="Baru 競馬AI Pro", layout="wide")
 
-# --- サイドバー：総監督司令部（統合解析ロジック） ---
+# --- サイドバー：総監督司令部 ---
 with st.sidebar:
     st.header("⚙️ 総監督司令部")
     api_key = st.text_input("Gemini API KEY", type="password")
@@ -25,6 +25,7 @@ with st.sidebar:
     
     st.divider()
     
+    # 過去ログエリア
     st.header("📂 過去ログ・結果復習ルーム")
     log_files = sorted([f for f in os.listdir(LOG_DIR) if f.endswith(".txt")], reverse=True)
     selected_log = st.selectbox("復習・確認する過去の予想", log_files)
@@ -32,6 +33,16 @@ with st.sidebar:
         with open(os.path.join(LOG_DIR, selected_log), "r", encoding="utf-8") as f:
             st.session_state["res"] = f.read()
         st.rerun()
+
+    st.divider()
+
+    # レース結果コピペ投入エリア（追加）
+    st.header("🏁 レース結果のコピペ投入")
+    st.caption("💡 1行目にレース名を入力し、2行目から結果を丸ごとコピペしてください！")
+    race_result_input = st.text_area("1行目：レース名 / 2行目～：結果コピペ", height=200)
+    if st.button("🚨 実際の着順・ハナ争いと照合して復習"):
+        st.info("解析結果と実際のレース結果を照合中...")
+        # 必要に応じてここに照合ロジックを追加可能
 
 # --- メインエリア ---
 st.title("🏇 Baru 競馬AI Pro - 統合解析司令部")
@@ -46,7 +57,6 @@ if st.button("🚀 統合解析実行"):
                 genai.configure(api_key=api_key)
                 model = genai.GenerativeModel('gemini-1.5-flash')
                 
-                # サイドバーの統合解析基準をAIに強制
                 prompt = f"""
                 【今回の馬柱・オッズデータ】
                 {manual_data}
@@ -56,7 +66,7 @@ if st.button("🚀 統合解析実行"):
                 
                 【指示】
                 上記基準を統合し、全頭を診断せよ。
-                出力には必ず以下のテーブルを含めること：
+                必ず以下の形式のテーブルで出力すること：
                 | 馬番 | 馬名 | 単勝勝率(%) | 複勝勝率(%) | 診断コメント |
                 | --- | --- | --- | --- | --- |
                 
