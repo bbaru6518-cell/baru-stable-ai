@@ -46,7 +46,7 @@ with st.sidebar:
             except Exception as e: st.error(f"照合エラー: {e}")
 
 # --- メインエリア ---
-st.title("🏇 Baru 競馬AI Pro - 最終完全版")
+st.title("🏇 中央競馬AI Pro - 最終完全版")
 manual_data = st.text_area("✍️ 次回の馬柱データ", height=300)
 
 if st.button("🚀 猛省を刻んだ解析開始"):
