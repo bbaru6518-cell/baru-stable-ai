@@ -8,6 +8,16 @@ LOG_DIR = "racing_logs_standard"
 os.makedirs(LOG_DIR, exist_ok=True)
 st.set_page_config(page_title="Baru AI Pro", layout="wide", initial_sidebar_state="expanded")
 
+# --- モデル自動探索ロジック ---
+def get_working_model(api_key):
+    genai.configure(api_key=api_key)
+    # 利用可能なモデルを取得
+    models = [m for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+    if not models:
+        raise Exception("モデルが見つかりません。")
+    # リストの先頭を強制利用
+    return genai.GenerativeModel(models[0].name)
+
 # --- サイドバー定義（固定） ---
 with st.sidebar:
     st.header("⚙️ 総監督ルーム")
@@ -27,11 +37,10 @@ with st.sidebar:
     st.header("🏁 照合・猛省")
     result_copypaste = st.text_area("レース結果", height=100)
     if st.button("🚨 照合開始"):
-        if "res" in st.session_state and result_copypaste:
-            with st.spinner("猛省レポート生成中..."):
+        if "res" in st.session_state and result_copypaste and api_key:
+            with st.spinner("照合中..."):
                 try:
-                    genai.configure(api_key=api_key)
-                    model = genai.GenerativeModel("gemini-1.5-flash-latest")
+                    model = get_working_model(api_key)
                     prompt = f"予想:\n{st.session_state['res']}\n\n結果:\n{result_copypaste}\n\n猛省せよ。"
                     res = model.generate_content(prompt)
                     st.session_state["res"] += f"\n\n--- 🏁 猛省レポート ---\n{res.text}"
@@ -40,7 +49,7 @@ with st.sidebar:
                     st.error(f"照合エラー: {e}")
 
 # --- メイン処理 ---
-st.title("🏇 Baru 競馬AI Pro")
+st.title("🏇 Baru 競馬AI Pro - 接続突破版")
 manual_data = st.text_area("✍️ 馬柱データ", height=300)
 
 if st.button("🚀 解析開始"):
@@ -48,9 +57,8 @@ if st.button("🚀 解析開始"):
         st.error("APIキーを入力してください")
     else:
         try:
-            with st.spinner("解析中..."):
-                genai.configure(api_key=api_key)
-                model = genai.GenerativeModel("gemini-1.5-flash-latest")
+            with st.spinner("接続先探索・解析中..."):
+                model = get_working_model(api_key)
                 prompt = f"データ: {manual_data}\n指示: 全頭診断と3連複15点指示書を作成せよ。"
                 res = model.generate_content(prompt)
                 st.session_state["res"] = res.text
