@@ -1,65 +1,48 @@
+import streamlit as st
+import google.generativeai as genai
+import json
+import os
+import requests
+from bs4 import BeautifulSoup
 import datetime
 import re
 
-# 📁 復習用のディレクトリ設定
+# 🚨 【重要修正】変数を先に定義してからディレクトリ生成を行う
 LOG_DIR = "racing_logs"
-os.makedirs(LOG_DIR, exist_ok=True)
+CONFIG_FILE = "baru_pro_config.json"
+os.makedirs(LOG_DIR, exist_ok=True) # ここでディレクトリを作成
 
-# 🧹 ファイル名クリーニング
-def clean_filename(name):
-    return re.sub(r'[\\/*?:"<>| \t]', '_', name.strip())[:50]
+# --- 設定保存機能 ---
+def save_cfg(k, b):
+    with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+        json.dump({"k": k, "b": b}, f, ensure_ascii=False, indent=4)
 
-# --- サイドバー復習セクション ---
-with st.sidebar:
-    st.markdown("---")
-    st.header("📂 過去ログ・結果復習ルーム")
-    
-    log_files = sorted([f for f in os.listdir(LOG_DIR) if f.endswith(".txt")], reverse=True)
-    if log_files:
-        selected_log = st.selectbox("復習・確認する過去の予想", log_files)
-        
-        if st.button("📖 過去の指示書を呼び出す"):
-            with open(os.path.join(LOG_DIR, selected_log), "r", encoding="utf-8") as f:
-                st.session_state["res"] = f.read()
+def load_cfg():
+    if os.path.exists(CONFIG_FILE):
+        try:
+            with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except:
+            pass
+    return {
+        "k": "", 
+        "b": "JRA（中央競馬）および地方競馬の高速馬場・トラックバイアス、芝・ダートのキレ、走破タイム理論（基準タイム・馬場補正）、上がり3F、展開・ハナ争いを統合解析せよ。"
+    }
 
-    st.markdown("---")
-    st.subheader("🏁 レース結果のコピペ投入")
-    result_copypaste = st.text_area("1行目：レース名 / 2行目〜：結果コピペ", height=200)
-    
-    if st.button("🚨 AI猛省・戦果照合開始"):
-        if not api_key or not result_copypaste.strip() or not st.session_state["res"]:
-            st.error("APIキー、結果データ、そして呼び出した予想ログが必要です")
-        else:
-            with st.spinner("戦果を分析し、次回の改善点を抽出中..."):
-                try:
-                    genai.configure(api_key=api_key)
-                    model = genai.GenerativeModel("models/gemini-1.5-pro") # プロ版推奨
-                    
-                    # 猛省プロンプト
-                    review_prompt = f"""
-                    あなたは総監督Baruの右腕AIだ。以下の【当時の予想】と【実際のレース結果】を徹底比較し、短く簡潔に戦果分析レポートを作成せよ。
-                    
-                    【当時の予想指示書】:
-                    {st.session_state["res"]}
-                    
-                    【実際のレース結果】:
-                    {result_copypaste}
-                    
-                    【出力項目】
-                    1. 結果の整理（払戻金と的中・不的中）
-                    2. なぜその結果になったのか（展開・バイアス・見落としの猛省）
-                    3. 次回制覇のためのロジック修正案（次回の予想指示書にどうバイアスを反映させるか）
-                    """
-                    
-                    response = model.generate_content(review_prompt)
-                    
-                    # ログの追記保存
-                    now_str = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-                    new_log = f"{st.session_state['res']}\n\n=== 🏁 結果・猛省レポート ({now_str}) ===\n{response.text}"
-                    with open(os.path.join(LOG_DIR, f"Result_{now_str}.txt"), "w", encoding="utf-8") as f:
-                        f.write(new_log)
-                        
-                    st.session_state["res"] = new_log
-                    st.success("猛省レポートを作成しました！")
-                except Exception as e:
-                    st.error(f"分析エラー: {e}")
+# --- データ取得ヘルパー関数 ---
+def get_netkeiba_data(url):
+    try:
+        headers = {"User-Agent": "Mozilla/5.0"}
+        res = requests.get(url, headers=headers)
+        res.encoding = res.apparent_encoding
+        soup = BeautifulSoup(res.text, "html.parser")
+        main_data = soup.find_all("table")
+        combined_text = ""
+        for table in main_data:
+            combined_text += table.get_text(separator="\n", strip=True) + "\n"
+        return combined_text[:50000]
+    except Exception as e:
+        return f"Error: {e}"
+
+# 読み込みの続き...
+cfg = load_cfg()
