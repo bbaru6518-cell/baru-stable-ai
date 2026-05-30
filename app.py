@@ -62,7 +62,7 @@ if st.button("🚀 統合解析実行"):
                 genai.configure(api_key=api_key)
                 
                 # v1ルート配下で100%確実に認識される正規のモデル指定形式
-                model = genai.GenerativeModel('models/gemini-1.5-flash')
+                model = genai.GenerativeModel('models/gemini-2.5-flash')
                 
                 # プロンプト内容
                 prompt = f"""
