@@ -55,13 +55,16 @@ if st.button("🚀 統合解析実行"):
     else:
         try:
             with st.spinner("統合解析中..."):
-                # APIバージョンを 'v1' に完全固定
-                genai.configure(api_key=api_key, client_options={"api_version": "v1"})
+                # 【最新ライブラリ0.8.6対応】環境変数経由で、安全にAPIバージョンを固定します
+                os.environ["GAM_API_VERSION"] = "v1"
                 
-                # 404エラーを回避するための正規指定形式
+                # APIキーのシンプルな設定（client_optionsのエラーを完全回避）
+                genai.configure(api_key=api_key)
+                
+                # 最新環境で404にならない最も安定したモデル指定
                 model = genai.GenerativeModel('gemini-1.5-flash')
                 
-                # プロンプト内の特殊文字による誤作動を完全に防ぐ
+                # プロンプト内容
                 prompt = f"""
                 【今回の馬柱・オッズデータ（netkeiba分析情報含む）】
                 {manual_data}
@@ -96,7 +99,7 @@ if st.button("🚀 統合解析実行"):
                 with open(os.path.join(LOG_DIR, f"Race_{now}.txt"), "w", encoding="utf-8") as f:
                     f.write(response.text)
             
-            # tryブロックの直下（インデント4マス下）に正しく配置
+            # 画面を更新して解析結果を描画
             st.rerun()
             
         except Exception as e: 
