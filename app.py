@@ -55,13 +55,13 @@ if st.button("🚀 統合解析実行"):
     else:
         try:
             with st.spinner("統合解析中..."):
-                # 最新ライブラリ仕様に合わせ、APIバージョンを 'v1' に完全固定
+                # APIバージョンを 'v1' に完全固定
                 genai.configure(api_key=api_key, client_options={"api_version": "v1"})
                 
                 # 404エラーを回避するための正規指定形式
                 model = genai.GenerativeModel('gemini-1.5-flash')
                 
-                # 【エスケープ修正版】中括弧表現を{{}}に修正し、SyntaxErrorを完全に防止
+                # プロンプト内の特殊文字による誤作動を完全に防ぐ
                 prompt = f"""
                 【今回の馬柱・オッズデータ（netkeiba分析情報含む）】
                 {manual_data}
@@ -95,5 +95,12 @@ if st.button("🚀 統合解析実行"):
                 now = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
                 with open(os.path.join(LOG_DIR, f"Race_{now}.txt"), "w", encoding="utf-8") as f:
                     f.write(response.text)
-                    
-            st.rerun() # 画面をリフレッシュして解析結果を
+            
+            # tryブロックの直下（インデント4マス下）に正しく配置
+            st.rerun()
+            
+        except Exception as e: 
+            st.error(f"解析エラー: {e}")
+
+if "res" in st.session_state:
+    st.markdown(st.session_state["res"])
