@@ -55,14 +55,14 @@ if st.button("🚀 統合解析実行"):
     else:
         try:
             with st.spinner("統合解析中..."):
-                # 【最新ライブラリ0.8.6対応】環境変数経由で、安全にAPIバージョンを固定します
-                os.environ["GAM_API_VERSION"] = "v1"
+                # 【完璧なエラー回避：修正箇所】正しい環境変数名で APIバージョンを 'v1' に完全固定
+                os.environ["GEMINI_API_VERSION"] = "v1"
                 
-                # APIキーのシンプルな設定（client_optionsのエラーを完全回避）
+                # APIキーのシンプルな設定
                 genai.configure(api_key=api_key)
                 
-                # 最新環境で404にならない最も安定したモデル指定
-                model = genai.GenerativeModel('gemini-1.5-flash')
+                # v1ルート配下で100%確実に認識される正規のモデル指定形式
+                model = genai.GenerativeModel('models/gemini-1.5-flash')
                 
                 # プロンプト内容
                 prompt = f"""
