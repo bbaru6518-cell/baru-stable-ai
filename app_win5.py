@@ -63,9 +63,44 @@ with st.sidebar:
 
     # レース結果照合
     st.header("🏁 レース結果の照合")
-    st.text_area("WIN5結果のコピペ", height=150, key="result_input")
+    result_input = st.text_area("WIN5結果のコピペ", height=150, key="result_input")
     if st.button("🚨 実際の的中・結果と照合"):
-        st.info("解析結果との照合準備中...")
+        if not result_input.strip():
+            st.warning("結果をコピペしてください")
+        elif "res" not in st.session_state:
+            st.warning("先に解析を実行してください")
+        elif not api_key:
+            st.warning("APIキーを入力してください")
+        else:
+            try:
+                genai.configure(api_key=api_key)
+                model = genai.GenerativeModel("gemini-2.5-flash-lite")
+                check_prompt = f"""以下の【AI予想】と【実際の結果】を照合し、各レースの的中・不的中を判定せよ。
+
+【AI予想】
+{st.session_state["res"]}
+
+【実際の結果】
+{result_input}
+
+【出力形式】
+各レースについて以下を表示：
+- レース名
+- AI予想の本命馬
+- 実際の1着馬
+- 判定（◎的中 / ✗不的中）
+
+最後にWIN5全体の結果（何レース目まで的中が続いたか）をまとめよ。
+"""
+                with st.spinner("照合中..."):
+                    resp = model.generate_content(check_prompt, generation_config={"max_output_tokens": 1500})
+                    st.session_state["check_res"] = resp.text
+            except Exception as e:
+                st.error(f"照合エラー: {e}")
+
+    if "check_res" in st.session_state:
+        st.markdown("---")
+        st.markdown(st.session_state["check_res"])
 
 # --- メインエリア ---
 st.title("🏇 WIN5戦略特化型マスター")
