@@ -42,14 +42,15 @@ with st.sidebar:
     # 結果照合
     st.header("🏁 レース結果のコピペ投入")
     st.caption("💡 1行目にレース名を入力し、2行目から結果を丸ごとコピペしてください！")
-    race_result_input = st.text_area("1行目：レース名 / 2行目～：結果コピペ", height=200)
+    race_result_input = st.text_area("1行目：レース名 / 2行目～：結果コピペ", height=200, key="review_input")
 
     if st.button("🚨 実際の着順・ハナ争いと照合して復習"):
+        race_result_input = st.session_state.get("review_input", "")
         if not api_key:
             st.error("APIキーを入力してください")
-        elif not race_result_input:
+        elif not race_result_input.strip():
             st.error("結果データをコピペしてください")
-        elif "res" not in st.session_state:
+        elif "res" not in st.session_state or not st.session_state["res"]:
             st.error("まず予想を実行してください")
         else:
             try:
@@ -116,6 +117,8 @@ if "venues" not in st.session_state:
     st.session_state["venues"] = ["東京", "阪神"]
 if "race_data" not in st.session_state:
     st.session_state["race_data"] = {}  # {venue_idx: {race_num: text}}
+if "netkeiba_data" not in st.session_state:
+    st.session_state["netkeiba_data"] = {}  # {venue_idx: {race_num: text}}
 
 # 開催地追加・削除
 col_v1, col_v2, col_v3 = st.columns([1, 1, 4])
@@ -156,16 +159,33 @@ for v_idx, v_tab in enumerate(venue_tabs):
         for r_idx, r_tab in enumerate(race_tabs):
             race_num = r_idx + 1
             with r_tab:
-                key = f"race_{v_idx}_{race_num}"
-                current_val = st.session_state["race_data"][v_idx].get(race_num, "")
-                new_val = st.text_area(
-                    f"✍️ {venue_name} {race_num}R の馬柱・オッズ（空欄でスキップ）",
-                    value=current_val,
-                    height=300,
-                    key=key,
-                    placeholder=f"{venue_name} {race_num}Rの出馬表、オッズ、netkeiba分析データをコピペしてください",
-                )
-                st.session_state["race_data"][v_idx][race_num] = new_val
+                if v_idx not in st.session_state["netkeiba_data"]:
+                    st.session_state["netkeiba_data"][v_idx] = {}
+
+                col_race, col_nb = st.columns([1, 1])
+                with col_race:
+                    key = f"race_{v_idx}_{race_num}"
+                    current_val = st.session_state["race_data"][v_idx].get(race_num, "")
+                    new_val = st.text_area(
+                        f"✍️ 出馬表・オッズ（空欄でスキップ）",
+                        value=current_val,
+                        height=350,
+                        key=key,
+                        placeholder=f"{venue_name} {race_num}Rの出馬表・オッズをコピペ",
+                    )
+                    st.session_state["race_data"][v_idx][race_num] = new_val
+
+                with col_nb:
+                    nb_key = f"nb_{v_idx}_{race_num}"
+                    current_nb = st.session_state["netkeiba_data"][v_idx].get(race_num, "")
+                    new_nb = st.text_area(
+                        f"📊 netkeibaデータ分析（任意）",
+                        value=current_nb,
+                        height=350,
+                        key=nb_key,
+                        placeholder="データ上位馬3頭、コース分析、出走馬分析などをコピペ\n\n例：\nデータ上位馬3頭\n16バンオンタイム\n10ワイズファミリア\n12ショウナンサイオウ\n\n今回の馬場状態が得意な馬\n16バンオ / 15クール / 10ワイズ",
+                    )
+                    st.session_state["netkeiba_data"][v_idx][race_num] = new_nb
 
 st.divider()
 
@@ -177,10 +197,21 @@ for v_idx, venue in enumerate(st.session_state["venues"]):
         if val.strip():
             filled_races.append(f"{venue} {r}R")
 
+nb_filled = []
+for v_idx, venue in enumerate(st.session_state["venues"]):
+    for r in range(1, 13):
+        val = st.session_state["netkeiba_data"].get(v_idx, {}).get(r, "")
+        if val.strip():
+            nb_filled.append(f"{venue} {r}R")
+
 col_status, col_btn = st.columns([3, 1])
 with col_status:
     if filled_races:
-        st.success(f"✅ 入力済み {len(filled_races)}レース: {' / '.join(filled_races)}")
+        st.success(f"✅ 出馬表入力済み {len(filled_races)}レース: {' / '.join(filled_races)}")
+        if nb_filled:
+            st.info(f"📊 netkeibaデータあり: {' / '.join(nb_filled)}（クロス解析が有効になります）")
+        else:
+            st.warning("📊 netkeibaデータ未入力（右枠にコピペすると的中率が上がります）")
     else:
         st.info("入力済みのレースはありません")
 
@@ -202,9 +233,22 @@ if run_btn:
 【統合解析基準】
 - JRAおよび地方競馬の高速馬場・トラックバイアス、芝・ダートのキレ、走破タイム理論（基準タイム・馬場補正）、上がり3F、展開・ハナ争いを統合解析せよ。
 
-【⚙️ 総監督絶対厳守ロジック：netkeibaデータ傾向スクリーニング】
-1. 投入されたデータ内に「データ上位馬3頭」というセクションがある場合、そこに名前がある馬はクラス・条件への地力高いと判断し、軸馬・相手筆頭（◎, 〇, ▲）の最有力候補として評価パラメータを大きく加算せよ。
-2. データ内の「今回の馬場状態が得意な馬」「今回のレース間隔で実績がある馬」「この競馬場が得意な馬」のいずれかに該当する不人気馬（単勝5番人気以下）は、近走成績が悪くても必ず【穴候補・紐（△または注）】として救済・格納せよ。
+【⚙️ 総監督絶対厳守ロジック：netkeibaデータ分析×出馬表クロス解析】
+netkeibaデータ分析が提供されている場合、以下のルールを厳守してクロス解析せよ：
+
+1. 【データ上位馬3頭】に名前がある馬は「地力上位」と判断し、◎○▲の最有力候補として評価を大きく加算せよ。複数の項目で上位に入る馬ほど加点を重ねよ。
+
+2. 【出走馬分析】の各項目（このコースが得意な馬・この距離が得意な馬・今回の馬場状態が得意な馬・今回の調教評価で実績がある馬など）に登場する馬を全頭チェックし、複数項目に該当する馬は「データ適合スコア」として加点せよ。3項目以上該当なら◎○候補に格上げ。
+
+3. 【コース分析】の「有利な枠順・脚質・騎手・種牡馬」と出馬表の各馬を照合し：
+   - 有利枠に入った馬にボーナス加点
+   - 有利脚質（逃げ・先行）の馬にボーナス加点
+   - データ推奨騎手が騎乗する馬にボーナス加点
+   - 推奨種牡馬の産駒にボーナス加点
+
+4. 不人気馬（5番人気以下）でも上記クロス解析で2項目以上該当する場合は、必ず【穴候補△または注】として救済・格納せよ。消し評価にすることを厳禁とする。
+
+5. 診断コメントには必ず「データ適合：〇項目該当（該当項目名）」を明記せよ。
 
 【⚙️ 総監督絶対厳守ロジック：死んだふり下剋上馬（上がり最速爆弾）の検知】
 以下の激走ファクターを満たす伏兵馬は展開がハマった瞬間に下剋上を起こす爆弾馬として自動検知せよ。
@@ -216,9 +260,17 @@ if run_btn:
 以下の1レース分のデータのみを解析せよ。他のレースのデータは存在しない。
 上記基準を統合して全頭を精密に診断し、以下のMarkdownテーブル形式で出力すること：
 
-| 馬番 | 馬名 | 単勝勝率(%) | 複勝勝率(%) | ダート砂適性 | 脚質 | 人気 | 評価 | 診断コメント |
+| 馬番 | 馬名 | 脚質 | 人気 | 評価 | データ適合 | 診断コメント |
 
-最後に買い目（三連複フォーメーション等）を総監督への【投資指示書】として結論提示せよ。
+※【データ適合】列：netkeibaデータ分析に該当した項目数と項目名を記載（例：3項目/上位馬・馬場・コース）。データなし時は「-」。
+※【評価】：◎○▲△注消。データ適合スコアと馬柱分析を統合して決定すること。
+
+最後に以下を出力せよ：
+### 📊 データクロス適合ランキング
+netkeibaデータ適合スコア上位馬を順位形式で表示（該当項目を列挙）
+
+### 💰 投資指示書（三連複フォーメーション）
+軸馬・相手・穴の根拠をデータ適合スコアと馬柱分析の両面から明記すること。
 """
 
             results = {}  # {label: result_text}
@@ -234,7 +286,9 @@ if run_btn:
             ]):
                 label = f"{venue} {r}R"
                 val = st.session_state["race_data"][v_idx][r].strip()
-                prompt = f"【{label} の馬柱・オッズデータ】\n{val}\n\n{base_prompt}"
+                nb_val = st.session_state["netkeiba_data"].get(v_idx, {}).get(r, "").strip()
+                nb_section = f"\n\n【{label} のnetkeibaデータ分析（上位馬・コース傾向）】\n{nb_val}" if nb_val else ""
+                prompt = f"【{label} の馬柱・オッズデータ】\n{val}{nb_section}\n\n{base_prompt}"
                 progress_bar.progress((i) / total, text=f"{i + 1} / {total} : {label} 解析中...")
                 response = model.generate_content(prompt, generation_config={"max_output_tokens": 3000})
                 results[label] = response.text
