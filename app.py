@@ -194,18 +194,11 @@ if run_btn:
     elif not filled_races:
         st.error("少なくとも1レース分のデータを入力してください")
     else:
-        # 入力済みレースのデータ結合
-        combined = ""
-        for v_idx, venue in enumerate(st.session_state["venues"]):
-            for r in range(1, 13):
-                val = st.session_state["race_data"].get(v_idx, {}).get(r, "").strip()
-                if val:
-                    combined += f"\n\n{'='*30}\n【{venue} {r}R】\n{'='*30}\n{val}"
+        try:
+            genai.configure(api_key=api_key)
+            model = genai.GenerativeModel("gemini-2.5-flash-lite")
 
-        prompt = f"""
-【今回の馬柱・オッズデータ（netkeiba分析情報含む）】
-{combined}
-
+            base_prompt = """
 【統合解析基準】
 - JRAおよび地方競馬の高速馬場・トラックバイアス、芝・ダートのキレ、走破タイム理論（基準タイム・馬場補正）、上がり3F、展開・ハナ争いを統合解析せよ。
 
@@ -220,37 +213,61 @@ if run_btn:
 - 上記に該当する馬は激走警戒馬（注）として評価し、3連複フォーメーション等の3列目（紐）に必ず強制配置せよ。
 
 【指示】
-入力された各レースについて、上記基準を統合して全頭を精密に診断せよ。
-各レースごとに以下のMarkdownテーブル形式で出力すること：
-
-### 🏇 [開催地 レース番号R] 解析結果
+以下の1レース分のデータのみを解析せよ。他のレースのデータは存在しない。
+上記基準を統合して全頭を精密に診断し、以下のMarkdownテーブル形式で出力すること：
 
 | 馬番 | 馬名 | 単勝勝率(%) | 複勝勝率(%) | ダート砂適性 | 脚質 | 人気 | 評価 | 診断コメント |
 
-最後に各レースの買い目（三連複フォーメーション等）を総監督への【投資指示書】として結論提示せよ。
+最後に買い目（三連複フォーメーション等）を総監督への【投資指示書】として結論提示せよ。
 """
 
-        try:
-            genai.configure(api_key=api_key)
-            model = genai.GenerativeModel("gemini-2.5-flash-lite")
+            results = {}  # {label: result_text}
+            total = len(filled_races)
 
-            with st.spinner(f"🚀 {len(filled_races)}レースを統合解析中..."):
-                response = model.generate_content(
-                    prompt,
-                    generation_config={"max_output_tokens": 5000}
-                )
-                st.session_state["res"] = response.text
+            progress_bar = st.progress(0, text=f"0 / {total} レース解析中...")
 
-                now = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-                with open(os.path.join(LOG_DIR, f"Race_{now}.txt"), "w", encoding="utf-8") as f:
-                    f.write(response.text)
+            for i, (v_idx, venue, r) in enumerate([
+                (v_idx, venue, r)
+                for v_idx, venue in enumerate(st.session_state["venues"])
+                for r in range(1, 13)
+                if st.session_state["race_data"].get(v_idx, {}).get(r, "").strip()
+            ]):
+                label = f"{venue} {r}R"
+                val = st.session_state["race_data"][v_idx][r].strip()
+                prompt = f"【{label} の馬柱・オッズデータ】\n{val}\n\n{base_prompt}"
+                progress_bar.progress((i) / total, text=f"{i + 1} / {total} : {label} 解析中...")
+                response = model.generate_content(prompt, generation_config={"max_output_tokens": 3000})
+                results[label] = response.text
+
+            progress_bar.progress(1.0, text=f"✅ {total}レース 解析完了！")
+            st.session_state["results_per_race"] = results
+            st.session_state["res"] = "\n\n".join(
+                [f"### 🏇 {lbl} 解析結果\n{txt}" for lbl, txt in results.items()]
+            )
+
+            now = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+            with open(os.path.join(LOG_DIR, f"Race_{now}.txt"), "w", encoding="utf-8") as f:
+                f.write(st.session_state["res"])
 
             st.rerun()
         except Exception as e:
             st.error(f"解析エラー: {e}")
 
-# --- 結果表示 ---
-if "res" in st.session_state and st.session_state["res"]:
+# --- 結果表示（レースごとにタブ分割）---
+if "results_per_race" in st.session_state and st.session_state["results_per_race"]:
+    st.divider()
+    st.subheader("📊 統合解析結果")
+    race_labels = list(st.session_state["results_per_race"].keys())
+    if len(race_labels) == 1:
+        st.markdown(f"### 🏇 {race_labels[0]} 解析結果")
+        st.markdown(st.session_state["results_per_race"][race_labels[0]])
+    else:
+        result_tabs = st.tabs([f"🏇 {lbl}" for lbl in race_labels])
+        for tab, lbl in zip(result_tabs, race_labels):
+            with tab:
+                st.markdown(st.session_state["results_per_race"][lbl])
+elif "res" in st.session_state and st.session_state["res"]:
+    # 過去ログ呼び出し時のフォールバック表示
     st.divider()
     st.subheader("📊 統合解析結果")
     st.markdown(st.session_state["res"])
