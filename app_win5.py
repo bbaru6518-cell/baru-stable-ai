@@ -147,7 +147,7 @@ if run_btn:
 
         try:
             genai.configure(api_key=api_key)
-            model = genai.GenerativeModel("models/gemini-1.5-pro")
+            model = genai.GenerativeModel("gemini-2.0-flash")
 
             with st.spinner("🚀 WIN5多角マトリクス解析中..."):
                 response = model.generate_content(prompt)
