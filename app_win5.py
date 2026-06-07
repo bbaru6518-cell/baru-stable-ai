@@ -147,10 +147,10 @@ if run_btn:
 
         try:
             genai.configure(api_key=api_key)
-            model = genai.GenerativeModel("gemini-2.5-flash")
+            model = genai.GenerativeModel("gemini-2.5-flash-lite")
 
             with st.spinner("🚀 WIN5多角マトリクス解析中..."):
-                response = model.generate_content(prompt)
+                response = model.generate_content(prompt, generation_config={"max_output_tokens": 3000})
                 st.session_state["res"] = response.text
 
                 # ログ保存
